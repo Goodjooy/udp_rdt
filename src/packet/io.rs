@@ -14,18 +14,22 @@ impl Packet {
         let flag =
             PacketFlag::from_packet_info(self.body.len(), self.packet_split, self.packet_type);
         let body = &mut self.body.as_slice();
-        let mut buf_writer = Vec::with_capacity(1 + self.body.len() + 2);
+        let buf_writer = {
+            let mut writer = Vec::with_capacity(1 + self.body.len() + 2);
 
-        // generate send body
-        // body flag
-        buf_writer.write_u8(flag.get_flag())?;
-        // body code
-        buf_writer.write_u8(self.identify_code)?;
-        // body size
-        let _ = Self::write_body_size(body.len(), flag, writer)?;
-        // body
-        copy(body, &mut buf_writer)?;
+            // generate send body
+            // body flag
+            writer.write_u8(flag.get_flag())?;
+            // body code
+            writer.write_u8(self.identify_code)?;
+            // body size
 
+            let _ = Self::write_body_size(body.len(), flag, &mut writer)?;
+            // body
+            copy(body, &mut writer)?;
+
+            writer
+        };
         // generate verify code
         let verify = verify_info_gen(&buf_writer);
 
@@ -109,5 +113,36 @@ impl Packet {
                 BodySize::Empty => Ok(0),
             })
             .transpose()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::packet::{flags::PacketFlag, Packet};
+
+    #[test]
+    fn test_write_body_size() {
+        let mut buf = Vec::new();
+
+        let flag = PacketFlag::from_packet_info(3, Default::default(), Default::default());
+
+        Packet::write_body_size(3, flag, &mut buf).unwrap();
+
+        println!("buf {:?}", buf);
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf[0], 3);
+    }
+
+    #[test]
+    fn test_self_verify() {
+        let packet = Packet::new_data(0, vec![1, 1, 1]);
+        let mut buf = Vec::new();
+
+        packet.write(&mut buf).unwrap();
+        println!("buf :{buf:?}");
+
+        let resp = Packet::read(&buf);
+
+        println!("{resp:?}")
     }
 }
