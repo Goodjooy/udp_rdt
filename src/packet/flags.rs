@@ -1,15 +1,19 @@
-use std::{ops::{BitOr, BitOrAssign}, io::{Read, self}};
+use std::{
+    io::{self, Read},
+    ops::{BitOr, BitOrAssign},
+};
 
 use byteorder::ReadBytesExt;
 #[derive(PartialEq, Eq)]
 pub struct PacketFlag(u8);
 
 /// Packet split: End
-const END_PACKET: PacketFlag = PacketFlag::new(0o001); //001
+const END_PACKET: PacketFlag = PacketFlag::new(0b01_000_000); //001
 /// Packet split: part(not end)
-const FOLLOW_PACKET: PacketFlag = PacketFlag::new(0o002); //010
-#[derive(Debug, Clone, Copy)]
+const FOLLOW_PACKET: PacketFlag = PacketFlag::new(0b10_000_000); //010
+#[derive(Debug, Clone, Copy, Default)]
 pub enum PackSplit {
+    #[default]
     End,
     Follow,
 }
@@ -33,13 +37,16 @@ pub enum BodySize {
 
 /// packet type
 
-const DATA: PacketFlag = PacketFlag::new(0b01_000_000);
-const ACK: PacketFlag = PacketFlag::new(0b10_000_000);
+const DATA: PacketFlag = PacketFlag::new(0b00_000_001);
+const ACK: PacketFlag = PacketFlag::new(0b00_000_010);
+const LEAVE: PacketFlag = PacketFlag::new(0b00_000_011);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum PacketType {
+    #[default]
     Data,
     Ack,
+    Leave,
 }
 
 impl PacketFlag {
@@ -47,7 +54,7 @@ impl PacketFlag {
         Self(flag)
     }
 
-    pub fn from_reader<R:Read>(reader:&mut R)->io::Result<Self>{
+    pub fn from_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
         Ok(Self::new(reader.read_u8()?))
     }
 
@@ -98,13 +105,14 @@ impl PacketFlag {
         let ty = match ty {
             PacketType::Data => DATA,
             PacketType::Ack => ACK,
+            PacketType::Leave => LEAVE,
         };
 
         size | split | ty
     }
 
     pub fn get_pack_size(&self) -> Option<BodySize> {
-        match Self(self.0 & 0o070) {
+        match Self(self.0 & 0b00_111_000) {
             U64_SIZE => Some(BodySize::U64),
             U32_SIZE => Some(BodySize::U32),
             U16_SIZE => Some(BodySize::U16),
@@ -116,7 +124,7 @@ impl PacketFlag {
     }
 
     pub fn get_pack_split(&self) -> Option<PackSplit> {
-        match Self(self.0 & 0b00_000_111) {
+        match Self(self.0 & 0b11_000_000) {
             END_PACKET => Some(PackSplit::End),
             FOLLOW_PACKET => Some(PackSplit::Follow),
             _ => None,
@@ -124,9 +132,10 @@ impl PacketFlag {
     }
 
     pub fn get_pack_type(&self) -> Option<PacketType> {
-        match Self(self.0 & 0b11_000_000) {
+        match Self(self.0 & 0b00_000_111) {
             DATA => Some(PacketType::Data),
             ACK => Some(PacketType::Ack),
+            LEAVE => Some(PacketType::Leave),
             _ => None,
         }
     }
