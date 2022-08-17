@@ -1,11 +1,11 @@
-use std::{io::Write, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, time::Duration};
 
 use tokio::sync::mpsc;
 
 use crate::{
     fake_udp::UdpSocket,
     packet::Packet,
-    slide_windows::{NeedTimeoutWork, StatePacket, Timer, MAX_BUFF_SIZE, TIMEOUT_MS},
+    slide_windows::{NeedTimeoutWork, StatePacket, Timer, TIMEOUT_MS},
 };
 
 use super::GbnError;
@@ -15,9 +15,13 @@ const MAX_WINDOWS: usize = 255;
 pub struct GoBackNSender {
     target: SocketAddr,
     /// using 8bit for packet id
+    ///
     /// max windows is 255
+    ///
     /// when packet id = 0 NAK => ACK 255
+    ///
     /// but if the packet id = 255 is waiting too, thus
+    ///
     /// course confuse
     ///
     /// max windows size is 255 = 2 ^ 8 - 1
@@ -68,7 +72,7 @@ impl GoBackNSender {
 
         // send packet
         let len = socket.send_to(send_packet, self.target).await?;
-        println!("Send body size {len}");
+        println!("Send Packet {} size {len}", self.head.wrapping_sub(1));
 
         // start timer
 
@@ -79,15 +83,14 @@ impl GoBackNSender {
             self.timer.replace(timer).map(|t| t.stop());
 
             // if time out send again
-            let task = async move {
+            tokio::task::spawn(async move {
                 match timeout.waiting().await {
                     NeedTimeoutWork::Need => {
                         timeout_send.send(()).await.ok();
                     }
                     NeedTimeoutWork::None => (),
                 }
-            };
-            tokio::task::spawn(task);
+            });
             tokio::task::yield_now().await;
         }
 
@@ -99,7 +102,9 @@ impl GoBackNSender {
     /// 接收端的缓冲区只有1
     pub async fn recv_ack(&mut self, ack_num: u8, timeout_send: mpsc::Sender<()>) {
         // ----end---ack_num-----------head
-        if self.end <= ack_num {
+        // ack 在end 紧接着的上一个位置，那么就是NAK
+        if self.end.wrapping_sub(1) != ack_num {
+            self.size -= ack_num.wrapping_sub(self.end);
             self.end = ack_num.wrapping_add(1);
             //start a new timer
             let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
@@ -126,6 +131,7 @@ impl GoBackNSender {
     /// resend all packet in buffer that not recv ACK
     pub async fn resend_all(
         &mut self,
+        buf: &mut Vec<u8>,
         socket: &UdpSocket,
         timeout_send: mpsc::Sender<()>,
     ) -> Result<(), GbnError> {
@@ -133,15 +139,12 @@ impl GoBackNSender {
         self.timer.take().map(|v| v.stop());
 
         // resend all data
-        let mut buf = <Vec<u8>>::with_capacity(MAX_BUFF_SIZE);
-
         let mut idx = self.end;
-
-        while idx == self.head {
+        while idx != self.head {
             // the packet is always exist
             let packet = self.buffer.get_mut(idx as usize).unwrap();
             buf.clear();
-            let size = packet.pkg.write(&mut buf)?;
+            let size = packet.pkg.write(buf)?;
             let send_packet = &buf[0..size];
 
             let len = socket.send_to(send_packet, self.target).await?;
