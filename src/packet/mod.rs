@@ -4,7 +4,7 @@ mod io;
 
 use self::flags::{PackSplit, PacketType};
 
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 pub struct Packet {
     /// 差错校验码
     // verify: u16,

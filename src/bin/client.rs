@@ -1,13 +1,16 @@
 //! client
 //! send msg to server
 
-use std::{net::Ipv4Addr, time::Duration, io::ErrorKind};
+use std::{io::ErrorKind, net::Ipv4Addr, time::Duration};
 
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     time::timeout,
 };
-use udp_rdt::{packet::{ack::Ack, Packet}, fake_udp::UdpSocket};
+use udp_rdt::{
+    fake_udp::UdpSocket,
+    packet::{ack::Ack, Packet},
+};
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -92,7 +95,7 @@ async fn task() {
                     Ok(Err(ref err)) => {
                         let kind = err.kind();
                         println!("Error kind {kind:?}");
-                        if let ErrorKind::ConnectionReset = kind{
+                        if let ErrorKind::ConnectionReset = kind {
                             eprintln!("Service not usable");
                             break;
                         }
