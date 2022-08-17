@@ -62,6 +62,7 @@ impl GoBackNSender {
 
         // 封装包
         let packet = Packet::new_data(self.head, body);
+        buf.clear();
         let size = packet.write(buf)?;
         let send_packet = &buf[0..size];
 
@@ -69,7 +70,7 @@ impl GoBackNSender {
         self.buffer[self.head as usize] = StatePacket::new_waiting(packet);
         self.head = self.head.wrapping_add(1);
         self.size += 1;
-
+        println!("updated size: {}", self.size);
         // send packet
         let len = socket.send_to(send_packet, self.target).await?;
         println!("Send Packet {} size {len}", self.head.wrapping_sub(1));
@@ -86,6 +87,7 @@ impl GoBackNSender {
             tokio::task::spawn(async move {
                 match timeout.waiting().await {
                     NeedTimeoutWork::Need => {
+                        eprintln!("waiting timeout , resend");
                         timeout_send.send(()).await.ok();
                     }
                     NeedTimeoutWork::None => (),
@@ -104,22 +106,32 @@ impl GoBackNSender {
         // ----end---ack_num-----------head
         // ack 在end 紧接着的上一个位置，那么就是NAK
         if self.end.wrapping_sub(1) != ack_num {
-            self.size -= ack_num.wrapping_sub(self.end);
+            self.size -= ack_num.wrapping_sub(self.end).wrapping_add(1);
             self.end = ack_num.wrapping_add(1);
-            //start a new timer
-            let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
-            // stop old timer
-            self.timer.replace(timer).map(|v| v.stop());
 
-            tokio::task::spawn(async move {
-                match timeout.waiting().await {
-                    NeedTimeoutWork::Need => {
-                        timeout_send.send(()).await.ok();
+            println!("updated size: {}", self.size);
+            println!("ACK PASS");
+
+
+            if self.size > 0 {
+                //start a new timer
+                let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
+                // stop old timer
+                self.timer.replace(timer).map(|v| v.stop());
+
+                tokio::task::spawn(async move {
+                    match timeout.waiting().await {
+                        NeedTimeoutWork::Need => {
+                            eprintln!("waiting timeout, resend");
+                            timeout_send.send(()).await.ok();
+                        }
+                        NeedTimeoutWork::None => (),
                     }
-                    NeedTimeoutWork::None => (),
-                }
-            });
-            tokio::task::yield_now().await;
+                });
+                tokio::task::yield_now().await;
+            }else {
+                self.timer.take().map(|v|v.stop());
+            }
         } else {
             println!(
                 "ACK num {ack_num} smaller then end {} , waiting for time out re send all",

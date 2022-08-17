@@ -9,7 +9,7 @@ use crate::packet::Packet;
 pub mod gbn;
 
 pub const MAX_BUFF_SIZE: usize = 1024 * 1024 * 4 + 32;
-pub const TIMEOUT_MS: u64 = 3000;
+pub const TIMEOUT_MS: u64 = 5000;
 /// 定时器，用于超时重传
 pub struct Timer {
     handle: JoinHandle<()>,

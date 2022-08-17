@@ -26,7 +26,7 @@ impl GoBackNReceiver {
         &mut self,
         buf: &mut Vec<u8>,
         packet: Packet,
-        socket: UdpSocket,
+        socket: &UdpSocket,
     ) -> Result<Vec<u8>, GbnError> {
         let resp = if packet.get_id() == self.pkg_id {
             self.last_ack = Ack::new_ack(self.pkg_id);
@@ -41,7 +41,7 @@ impl GoBackNReceiver {
         resp
     }
 
-    pub async fn send_ack(&self, buf: &mut Vec<u8>, socket: UdpSocket) -> io::Result<()> {
+    pub async fn send_ack(&self, buf: &mut Vec<u8>, socket: &UdpSocket) -> io::Result<()> {
         buf.clear();
         let size = self.last_ack.write(buf)?;
         let send_body = &buf[0..size];
