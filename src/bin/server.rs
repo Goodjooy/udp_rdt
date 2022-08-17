@@ -3,8 +3,7 @@
 
 use std::{net::Ipv4Addr, time::Duration};
 
-use tokio::net::UdpSocket;
-use udp_rdt::packet::{ack::Ack, Packet};
+use udp_rdt::{packet::{ack::Ack, Packet}, fake_udp::UdpSocket};
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -30,7 +29,7 @@ async fn task() {
     while let Ok((size, origin)) = udp_socket.recv_from(&mut buf).await {
         let local_buf = &buf[0..size];
         println!("Recv Packet Size : [{size}]");
-        println!("send body {:?}",local_buf);
+        println!("Recv body {:?}",local_buf);
         let packet = Packet::read(local_buf);
         if let Ok(Some(packet)) = packet {
             println!("get Packet {:?}",packet);
@@ -60,7 +59,7 @@ async fn task() {
                 continue;
             }
         }
-        println!("Packet Verify not pass ,send last ACK");
+        println!("Packet Verify not pass, send last ACK {}",last_ack.get_ack_num());
         // error or send same packet again
         // send last ack
         write_buf.clear();

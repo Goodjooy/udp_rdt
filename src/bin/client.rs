@@ -5,10 +5,9 @@ use std::{net::Ipv4Addr, time::Duration, io::ErrorKind};
 
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    net::UdpSocket,
     time::timeout,
 };
-use udp_rdt::packet::{ack::Ack, Packet};
+use udp_rdt::{packet::{ack::Ack, Packet}, fake_udp::UdpSocket};
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -52,7 +51,7 @@ async fn task() {
                 println!("Get STDIN string {:?}", in_string);
 
                 // generate send packet
-                let packet = Packet::new(local_id, in_string.as_bytes().to_owned());
+                let packet = Packet::new_data(local_id, in_string.as_bytes().to_owned());
                 write_buf.clear();
                 let size = packet.write(&mut write_buf).expect("Send body Over flow");
                 let send_body = &write_buf[0..size];
@@ -107,7 +106,7 @@ async fn task() {
                 // 2 bad ACK
                 // 3 get previous ack (equal to NAK)
                 // need send packet again
-                let packet = Packet::new(local_id, in_string.as_bytes().to_owned());
+                let packet = Packet::new_data(local_id, in_string.as_bytes().to_owned());
                 write_buf.clear();
                 let size = packet.write(&mut write_buf).expect("Send Body Over flow");
                 let send_body = &write_buf[0..size];
