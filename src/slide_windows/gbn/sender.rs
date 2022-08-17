@@ -112,7 +112,6 @@ impl GoBackNSender {
             println!("updated size: {}", self.size);
             println!("ACK PASS");
 
-
             if self.size > 0 {
                 //start a new timer
                 let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
@@ -129,8 +128,8 @@ impl GoBackNSender {
                     }
                 });
                 tokio::task::yield_now().await;
-            }else {
-                self.timer.take().map(|v|v.stop());
+            } else {
+                self.timer.take().map(|v| v.stop());
             }
         } else {
             println!(
