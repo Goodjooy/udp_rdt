@@ -12,7 +12,10 @@ impl Ack {
 
     /// 判断是否为ack 以及是否为对应code
     pub fn is_correct_ack(&self, code: u8) -> bool {
-        self.identify_code == code && self.body == [0xFF] && self.is_ack()
+        self.identify_code == code && self.is_ack()
+    }
+    pub fn is_ack(&self) -> bool {
+        matches!(self.packet_type, PacketType::Ack) && self.body == [0xFF]
     }
 
     pub fn get_ack_num(&self) -> u8 {

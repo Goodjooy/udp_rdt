@@ -5,7 +5,7 @@
 
 use std::{io, net::SocketAddr};
 
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use tokio::net::{self, ToSocketAddrs};
 
 pub struct UdpSocket {
@@ -19,7 +19,7 @@ impl UdpSocket {
     }
 
     pub async fn send_to(&self, data: &[u8], target: impl ToSocketAddrs) -> io::Result<usize> {
-        let mut rand = thread_rng();
+        let mut rand = rand::rngs::OsRng;
 
         // 随机丢失 20%丢包率
         if rand.gen_bool(0.2) {
