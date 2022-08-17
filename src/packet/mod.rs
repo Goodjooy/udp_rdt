@@ -37,4 +37,8 @@ impl Packet {
     pub fn get_id(&self) -> u8 {
         self.identify_code
     }
+
+    pub fn is_ack(&self) -> bool {
+        matches!(self.packet_type, PacketType::Ack)
+    }
 }
