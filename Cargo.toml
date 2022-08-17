@@ -14,4 +14,4 @@ name = "client"
 tokio = { version = "1", features = ["full"] }
 byteorder = "1"
 rand = "0.8"
-
+thiserror = "1"
