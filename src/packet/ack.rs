@@ -1,10 +1,10 @@
-use super::Packet;
+use super::{flags::{PacketType, PackSplit}, Packet};
 
 pub type Ack = Packet;
 
 impl Ack {
     pub fn new_ack(code: u8) -> Self {
-        Ack::new(code, vec![0xFF])
+        Ack::new(code, vec![0xFF], PacketType::Ack,PackSplit::End)
     }
 
     /// 判断是否为ack 以及是否为对应code
@@ -19,7 +19,7 @@ impl Ack {
 
 #[cfg(test)]
 mod test {
-    use crate::packet::Packet;
+    use crate::packet::{flags::{PacketType, PackSplit}, Packet};
 
     use super::Ack;
 
@@ -37,7 +37,7 @@ mod test {
         assert!(!ack.is_correct_ack(1));
 
         // bad ack
-        let ack = Packet::new(1, vec![0xFA]);
+        let ack = Packet::new(1, vec![0xFA], PacketType::Ack,PackSplit::End);
 
         assert!(!ack.is_correct_ack(1));
 

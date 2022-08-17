@@ -13,6 +13,5 @@ name = "client"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 byteorder = "1"
-
-[dev-dependencies]
 rand = "0.8"
+
