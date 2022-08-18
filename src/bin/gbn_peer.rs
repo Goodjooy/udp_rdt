@@ -95,9 +95,9 @@ async fn task(args: Args) {
                     Either::Left(r) => {
                         let (size, origin) = r.expect("Udp Socket Fault");
                         let body = &buf[0..size];
+                        let packet = Packet::read(body);
                         if origin == args.target_addr {
-                            let packet = Packet::read(body);
-                            if let Ok(Some(packet)) = packet {
+                            if let Ok(Some(ref packet)) = packet {
                                 eprintln!("Recv Might ACK packet Ok");
                                 if packet.is_ack() {
                                     eprintln!("Recv ACK {}", packet.get_ack_num());
@@ -115,12 +115,12 @@ async fn task(args: Args) {
                         // if peer send msg , handle it
                         if let Some(sender) = map.get(&origin) {
                             // origin socket send previous
-                            sender.send(RecvMsg(body.to_vec())).await.ok();
+                            sender.send(RecvMsg(packet)).await.ok();
                         } else {
                             // new origin start recv
                             let sender =
                                 start_receive_peer(Arc::clone(&socket), origin, output_rx.clone());
-                            sender.send(RecvMsg(body.to_vec())).await.ok();
+                            sender.send(RecvMsg(packet)).await.ok();
                             map.insert(origin, sender);
                         }
                     }

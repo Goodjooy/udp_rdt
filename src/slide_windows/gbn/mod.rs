@@ -80,7 +80,7 @@ pub fn start_send_peer(
     rx
 }
 
-pub struct RecvMsg(pub Vec<u8>);
+pub struct RecvMsg(pub io::Result<Option<Packet>>);
 
 pub fn start_receive_peer(
     socket: Arc<UdpSocket>,
@@ -92,9 +92,8 @@ pub fn start_receive_peer(
 
     let task = async move {
         let mut write_buf = Vec::with_capacity(MAX_BUFF_SIZE);
-        while let Some(RecvMsg(buf)) = tx.recv().await {
+        while let Some(RecvMsg(packet)) = tx.recv().await {
             let result = async {
-                let packet = Packet::read(buf.as_slice());
                 if let Ok(Some(packet)) = packet {
                     if packet.is_data() {
                         let v = receiver.receive(&mut write_buf, packet, &socket).await?;
