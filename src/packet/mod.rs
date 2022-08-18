@@ -40,4 +40,8 @@ impl Packet {
     pub fn is_data(&self) -> bool {
         matches!(self.packet_type, PacketType::Data)
     }
+
+    pub fn packet_split(&self)->PackSplit{
+        self.packet_split
+    }
 }
