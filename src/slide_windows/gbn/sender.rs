@@ -6,7 +6,7 @@ use crate::{
     cycle_buffer::CycleBuffer,
     fake_udp::UdpSocket,
     packet::Packet,
-    slide_windows::{NeedTimeoutWork, Timer, TIMEOUT_MS},
+    slide_windows::{Timer, TIMEOUT_MS},
 };
 
 use super::GbnError;
@@ -74,14 +74,9 @@ impl GoBackNSender {
             self.timer.replace(timer).map(|t| t.stop());
 
             // if time out send again
-            tokio::task::spawn(async move {
-                match timeout.waiting().await {
-                    NeedTimeoutWork::Need => {
-                        eprintln!("waiting timeout , resend");
-                        timeout_send.send(()).await.ok();
-                    }
-                    NeedTimeoutWork::None => (),
-                }
+            timeout.need_resend_do(async move {
+                eprintln!("waiting timeout , resend");
+                timeout_send.send(()).await.ok();
             });
             tokio::task::yield_now().await;
         }
@@ -106,15 +101,11 @@ impl GoBackNSender {
                     // stop old timer
                     self.timer.replace(timer).map(|v| v.stop());
 
-                    tokio::task::spawn(async move {
-                        match timeout.waiting().await {
-                            NeedTimeoutWork::Need => {
-                                eprintln!("waiting timeout, resend");
-                                timeout_send.send(()).await.ok();
-                            }
-                            NeedTimeoutWork::None => (),
-                        }
+                    timeout.need_resend_do(async move {
+                        eprintln!("waiting timeout , resend");
+                        timeout_send.send(()).await.ok();
                     });
+
                     tokio::task::yield_now().await;
                 } else {
                     self.timer.take().map(|v| v.stop());
@@ -159,14 +150,11 @@ impl GoBackNSender {
         let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
         self.timer = Some(timer);
 
-        tokio::task::spawn(async move {
-            match timeout.waiting().await {
-                NeedTimeoutWork::Need => {
-                    timeout_send.send(()).await.ok();
-                }
-                NeedTimeoutWork::None => (),
-            }
+        timeout.need_resend_do(async move {
+            eprintln!("waiting timeout , resend");
+            timeout_send.send(()).await.ok();
         });
+
         tokio::task::yield_now().await;
 
         Ok(())

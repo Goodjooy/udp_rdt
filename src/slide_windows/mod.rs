@@ -1,12 +1,13 @@
 //! 滑动窗口
-//! GBN
 
 use std::time::Duration;
 
+use futures::Future;
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::packet::Packet;
 pub mod gbn;
+pub mod sr;
 
 pub const MAX_BUFF_SIZE: usize = 1024 * 1024 * 4 + 32;
 pub const TIMEOUT_MS: u64 = 5000;
@@ -16,6 +17,14 @@ pub struct Timer {
 }
 
 pub struct TimeoutWait(oneshot::Receiver<()>);
+
+pub struct TimerStarter(oneshot::Sender<()>);
+
+impl TimerStarter {
+    pub fn start(self) {
+        self.0.send(()).ok();
+    }
+}
 
 pub enum NeedTimeoutWork {
     Need,
@@ -30,9 +39,39 @@ impl TimeoutWait {
             Err(_) => NeedTimeoutWork::None,
         }
     }
+
+    pub fn need_resend_do<F>(self, fut: F)
+    where
+        F: Future<Output = ()> + 'static + Send,
+    {
+        tokio::task::spawn(async move {
+            match self.waiting().await {
+                NeedTimeoutWork::Need => {
+                    fut.await;
+                }
+                NeedTimeoutWork::None => (),
+            }
+        });
+    }
 }
 
 impl Timer {
+    pub fn later_start(timeout: Duration) -> (Self, TimerStarter, TimeoutWait) {
+        let (start_rx, start_tx) = oneshot::channel();
+        let (rx, tx) = oneshot::channel();
+        let handle = tokio::task::spawn(async move {
+            match start_tx.await {
+                Ok(_) => {
+                    tokio::time::sleep(timeout).await;
+                    rx.send(()).ok();
+                }
+                Err(_) => todo!(),
+            }
+        });
+
+        (Self { handle }, TimerStarter(start_rx), TimeoutWait(tx))
+    }
+
     pub fn start(timeout: Duration) -> (Self, TimeoutWait) {
         let (rx, tx) = oneshot::channel();
         let handle = tokio::task::spawn(async move {
@@ -43,7 +82,7 @@ impl Timer {
         (Self { handle }, TimeoutWait(tx))
     }
 
-    pub fn stop(self) {
+    pub fn stop(&self) {
         if !self.handle.is_finished() {
             self.handle.abort();
         }
@@ -52,7 +91,7 @@ impl Timer {
 
 impl Drop for Timer {
     fn drop(&mut self) {
-        self.handle.abort();
+        self.stop();
     }
 }
 
