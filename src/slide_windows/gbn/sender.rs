@@ -3,14 +3,15 @@ use std::{net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
+    cycle_buffer::CycleBuffer,
     fake_udp::UdpSocket,
     packet::Packet,
-    slide_windows::{NeedTimeoutWork, StatePacket, Timer, TIMEOUT_MS},
+    slide_windows::{NeedTimeoutWork, Timer, TIMEOUT_MS},
 };
 
 use super::GbnError;
 
-const MAX_WINDOWS: usize = 255;
+const MAX_WINDOWS: u8 = 255;
 
 pub struct GoBackNSender {
     target: SocketAddr,
@@ -26,13 +27,7 @@ pub struct GoBackNSender {
     ///
     /// max windows size is 255 = 2 ^ 8 - 1
     /// 0~254
-    buffer: Vec<StatePacket>,
-    /// 0 ~ 254
-    head: u8,
-    /// 0 ~ 254
-    end: u8,
-    /// buffer size
-    size: u8,
+    buffer: CycleBuffer<MAX_WINDOWS, Packet>,
     /// timer
     timer: Option<Timer>,
 }
@@ -41,10 +36,7 @@ impl GoBackNSender {
     pub fn new(target: SocketAddr) -> Self {
         Self {
             target,
-            buffer: (0..MAX_WINDOWS).map(|_| StatePacket::default()).collect(),
-            head: 0,
-            end: 0,
-            size: 0,
+            buffer: CycleBuffer::new(),
             timer: None,
         }
     }
@@ -56,29 +48,27 @@ impl GoBackNSender {
         socket: &UdpSocket,
         timeout_send: mpsc::Sender<()>,
     ) -> Result<(), super::GbnError> {
-        if (self.size) as usize > MAX_WINDOWS {
-            Err(GbnError::BufferFilled)?
-        }
-
         // 封装包
-        let packet = Packet::new_data(self.head, body);
+        let packet = Packet::new_data(self.buffer.top(), body);
         buf.clear();
         let size = packet.write(buf)?;
         let send_packet = &buf[0..size];
 
         // set packet to buffer
-        self.buffer[self.head as usize] = StatePacket::new_waiting(packet);
-        self.head = self.head.wrapping_add(1);
-        self.size += 1;
-        println!("updated size: {}", self.size);
+        self.buffer.push(packet)?;
+        println!("updated size: {}", self.buffer.len());
+
         // send packet
         let len = socket.send_to(send_packet, self.target).await?;
-        println!("Send Packet {} size {len}", self.head.wrapping_sub(1));
+        println!(
+            "Send Packet {} size {len}",
+            self.buffer.top().wrapping_sub(1)
+        );
 
         // start timer
 
         // if this packet is the first, start a timer
-        if self.size == 1 {
+        if self.buffer.len() == 1 {
             let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
             // stop last timer
             self.timer.replace(timer).map(|t| t.stop());
@@ -105,37 +95,37 @@ impl GoBackNSender {
     pub async fn recv_ack(&mut self, ack_num: u8, timeout_send: mpsc::Sender<()>) {
         // ----end---ack_num-----------head
         // ack 在end 紧接着的上一个位置，那么就是NAK
-        if self.end.wrapping_sub(1) != ack_num {
-            self.size -= ack_num.wrapping_sub(self.end).wrapping_add(1);
-            self.end = ack_num.wrapping_add(1);
+        match self.buffer.set_button(ack_num) {
+            Ok(_) => {
+                println!("updated size: {}", self.buffer.len());
+                println!("ACK PASS");
 
-            println!("updated size: {}", self.size);
-            println!("ACK PASS");
+                if self.buffer.len() > 0 {
+                    //start a new timer
+                    let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
+                    // stop old timer
+                    self.timer.replace(timer).map(|v| v.stop());
 
-            if self.size > 0 {
-                //start a new timer
-                let (timer, timeout) = Timer::start(Duration::from_millis(TIMEOUT_MS));
-                // stop old timer
-                self.timer.replace(timer).map(|v| v.stop());
-
-                tokio::task::spawn(async move {
-                    match timeout.waiting().await {
-                        NeedTimeoutWork::Need => {
-                            eprintln!("waiting timeout, resend");
-                            timeout_send.send(()).await.ok();
+                    tokio::task::spawn(async move {
+                        match timeout.waiting().await {
+                            NeedTimeoutWork::Need => {
+                                eprintln!("waiting timeout, resend");
+                                timeout_send.send(()).await.ok();
+                            }
+                            NeedTimeoutWork::None => (),
                         }
-                        NeedTimeoutWork::None => (),
-                    }
-                });
-                tokio::task::yield_now().await;
-            } else {
-                self.timer.take().map(|v| v.stop());
+                    });
+                    tokio::task::yield_now().await;
+                } else {
+                    self.timer.take().map(|v| v.stop());
+                }
             }
-        } else {
-            println!(
-                "ACK num {ack_num} smaller then end {} , waiting for time out re send all",
-                self.end
-            )
+            Err(_) => {
+                println!(
+                    "ACK num {ack_num} smaller then end {} , waiting for time out re send all",
+                    self.buffer.button()
+                )
+            }
         }
     }
 
@@ -150,12 +140,12 @@ impl GoBackNSender {
         self.timer.take().map(|v| v.stop());
 
         // resend all data
-        let mut idx = self.end;
-        while idx != self.head {
+        let mut idx = self.buffer.button();
+        while idx != self.buffer.top() {
             // the packet is always exist
-            let packet = self.buffer.get_mut(idx as usize).unwrap();
+            let packet = self.buffer.get(idx).unwrap();
             buf.clear();
-            let size = packet.pkg.write(buf)?;
+            let size = packet.write(buf)?;
             let send_packet = &buf[0..size];
 
             let len = socket.send_to(send_packet, self.target).await?;
