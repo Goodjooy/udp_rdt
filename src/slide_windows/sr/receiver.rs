@@ -11,27 +11,14 @@ use super::{SrError, MAX_WINDOWS_SIZE};
 pub struct SelectResendReceiver {
     origin: SocketAddr,
     buffer: FixedCycleBuffer<MAX_WINDOWS_SIZE, RecvWrap>,
-    last_ack: [u8; MAX_WINDOWS_SIZE as usize],
     local_buf: Vec<u8>,
 }
 
 impl SelectResendReceiver {
     pub fn new(origin: SocketAddr) -> Self {
-        let ack = {
-            let mut ack = [0u8; MAX_WINDOWS_SIZE as usize];
-            (0..MAX_WINDOWS_SIZE)
-                .map(|v| v << 4)
-                .enumerate()
-                .for_each(|(idx, last_ack)| {
-                    ack[idx] = last_ack;
-                });
-            ack
-        };
-
         Self {
             origin,
             buffer: FixedCycleBuffer::new(),
-            last_ack: ack,
             local_buf: Vec::new(),
         }
     }
@@ -43,7 +30,6 @@ impl SelectResendReceiver {
         socket: &UdpSocket,
     ) -> Result<Vec<Vec<u8>>, SrError> {
         let packet_id = packet.get_id();
-        let offset = self.buffer.calculate_offset(packet_id);
         // the packet id is in the windows
         match self.buffer.insert(
             packet_id,
@@ -54,12 +40,12 @@ impl SelectResendReceiver {
         ) {
             Ok(_) => {
                 // recv packet ok, update ack
-                self.last_ack[offset as usize] = packet_id;
             }
             Err(_) => {
                 // packet id mismatch , send last ack
             }
         }
+        self.send_ack(buf, socket, packet_id).await?;
         // slide windows
         let mut vec = Vec::new();
         self.buffer.slide_windows().into_iter().for_each(
@@ -73,18 +59,10 @@ impl SelectResendReceiver {
             },
         );
 
-        self.send_ack(buf, socket, offset).await?;
-
         Ok(vec)
     }
 
-    pub async fn send_ack(
-        &self,
-        buf: &mut Vec<u8>,
-        socket: &UdpSocket,
-        offset: u8,
-    ) -> io::Result<()> {
-        let ack = self.last_ack[offset as usize];
+    pub async fn send_ack(&self, buf: &mut Vec<u8>, socket: &UdpSocket, ack: u8) -> io::Result<()> {
         let ack = Ack::new_ack(ack);
 
         // write

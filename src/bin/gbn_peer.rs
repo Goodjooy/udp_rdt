@@ -1,6 +1,6 @@
 #![feature(box_syntax)]
 use std::collections::VecDeque;
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use clap::Parser;
 use futures::future::Either;
@@ -8,8 +8,9 @@ use tokio::io::AsyncBufReadExt;
 
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
+use tokio::sync::mpsc;
 use tokio::task;
-use tokio::{sync::mpsc, task::LocalSet};
+use udp_rdt::Args;
 use udp_rdt::{
     fake_udp::UdpSocket,
     packet::Packet,
@@ -39,7 +40,6 @@ async fn task(args: Args) {
             .expect("Cannot Create Udp socket"),
     );
 
-    let local_set = LocalSet::new();
     let (timeout_rx, mut timeout_tx) = mpsc::channel(16);
     let (output_rx, mut output_tx) = mpsc::channel::<Vec<u8>>(10);
 
@@ -78,67 +78,54 @@ async fn task(args: Args) {
     });
 
     let mut buf = box [0u8; MAX_BUFF_SIZE];
-    local_set
-        .run_until(async move {
-            loop {
-                let task = match futures::future::select(
-                    Box::pin(socket.recv_from(buf.as_mut())),
-                    Box::pin(timeout_tx.recv()),
-                )
-                .await
-                {
-                    Either::Left((r, _)) => Either::Left(r),
-                    Either::Right((l, _)) => Either::Right(l),
-                };
+    loop {
+        let task = match futures::future::select(
+            Box::pin(socket.recv_from(buf.as_mut())),
+            Box::pin(timeout_tx.recv()),
+        )
+        .await
+        {
+            Either::Left((r, _)) => Either::Left(r),
+            Either::Right((l, _)) => Either::Right(l),
+        };
 
-                match task {
-                    Either::Left(r) => {
-                        let (size, origin) = r.expect("Udp Socket Fault");
-                        let body = &buf[0..size];
-                        let packet = Packet::read(body);
-                        if origin == args.target_addr {
-                            if let Ok(Some(ref packet)) = packet {
-                                eprintln!("Recv Might ACK packet Ok");
-                                if packet.is_ack() {
-                                    eprintln!("Recv ACK {}", packet.get_ack_num());
-                                    send_msg
-                                        .send(SenderMsg::Ack(packet.get_ack_num()))
-                                        .await
-                                        .expect("Failure Handle Msg");
+        match task {
+            Either::Left(r) => {
+                let (size, origin) = r.expect("Udp Socket Fault");
+                let body = &buf[0..size];
+                let packet = Packet::read(body);
+                if origin == args.target_addr {
+                    if let Ok(Some(ref packet)) = packet {
+                        eprintln!("Recv Might ACK packet Ok");
+                        if packet.is_ack() {
+                            eprintln!("Recv ACK {}", packet.get_ack_num());
+                            send_msg
+                                .send(SenderMsg::Ack(packet.get_ack_num()))
+                                .await
+                                .expect("Failure Handle Msg");
 
-                                    continue;
-                                }
-                            }
-                        }
-                        // else
-                        // if fault ack packet , recv not reaction
-                        // if peer send msg , handle it
-                        if let Some(sender) = map.get(&origin) {
-                            // origin socket send previous
-                            sender.send(RecvMsg(packet)).await.ok();
-                        } else {
-                            // new origin start recv
-                            let sender =
-                                start_receive_peer(Arc::clone(&socket), origin, output_rx.clone());
-                            sender.send(RecvMsg(packet)).await.ok();
-                            map.insert(origin, sender);
+                            continue;
                         }
                     }
-                    Either::Right(Some(_)) => {
-                        eprintln!("Time Out Resend all");
-                        send_msg.send(SenderMsg::ResendAll).await.ok();
-                    }
-                    Either::Right(None) => (),
+                }
+                // else
+                // if fault ack packet , recv not reaction
+                // if peer send msg , handle it
+                if let Some(sender) = map.get(&origin) {
+                    // origin socket send previous
+                    sender.send(RecvMsg(packet)).await.ok();
+                } else {
+                    // new origin start recv
+                    let sender = start_receive_peer(Arc::clone(&socket), origin, output_rx.clone());
+                    sender.send(RecvMsg(packet)).await.ok();
+                    map.insert(origin, sender);
                 }
             }
-        })
-        .await;
-}
-
-#[derive(Debug, Parser)]
-struct Args {
-    #[clap(long, short, value_parser)]
-    local_addr: SocketAddr,
-    #[clap(long, short, value_parser)]
-    target_addr: SocketAddr,
+            Either::Right(Some(_)) => {
+                eprintln!("Time Out Resend all");
+                send_msg.send(SenderMsg::ResendAll).await.ok();
+            }
+            Either::Right(None) => (),
+        }
+    }
 }
