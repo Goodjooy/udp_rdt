@@ -45,13 +45,11 @@ impl<const S: u8, T> CycleBuffer<S, T> {
         Ok(())
     }
 
-    
-
     pub fn buffer_down(&mut self, buf_id: u8) {
         unsafe { self.buffer.get_unchecked_mut(buf_id as usize) }.set_down();
     }
 
-    pub fn slide_buff_with_done_data(&mut self)->Vec<T>{
+    pub fn slide_buff_with_done_data(&mut self) -> Vec<T> {
         let mut idx = self.button;
         let mut vec = Vec::new();
         while idx != self.top {
@@ -62,7 +60,7 @@ impl<const S: u8, T> CycleBuffer<S, T> {
             } else {
                 break;
             }
-    
+
             idx = idx.wrapping_add(1);
             self.button = idx;
         }

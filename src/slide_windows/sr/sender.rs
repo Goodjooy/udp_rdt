@@ -11,8 +11,6 @@ use crate::{
 
 use super::{SrError, MAX_WINDOWS_SIZE};
 
-
-
 pub struct SelectResendSender {
     target: SocketAddr,
     buffer: CycleBuffer<MAX_WINDOWS_SIZE, (Timer, Packet)>,

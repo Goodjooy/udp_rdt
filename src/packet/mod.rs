@@ -41,7 +41,7 @@ impl Packet {
         matches!(self.packet_type, PacketType::Data)
     }
 
-    pub fn packet_split(&self)->PackSplit{
+    pub fn packet_split(&self) -> PackSplit {
         self.packet_split
     }
 }

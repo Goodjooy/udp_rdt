@@ -12,7 +12,7 @@ pub enum GbnError {
     Io(#[from] io::Error),
 
     #[error(transparent)]
-    CycleBuffer(#[from]CbError),
+    CycleBuffer(#[from] CbError),
     /// 缓冲区已满
     #[error("缓冲区已满")]
     BufferFilled,
@@ -27,7 +27,7 @@ pub use receiver::GoBackNReceiver;
 pub use sender::GoBackNSender;
 use tokio::sync::mpsc;
 
-use crate::{fake_udp::UdpSocket, packet::Packet, cycle_buffer::CbError};
+use crate::{cycle_buffer::CbError, fake_udp::UdpSocket, packet::Packet};
 
 use super::MAX_BUFF_SIZE;
 
