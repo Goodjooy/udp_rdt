@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 pub struct CycleBuffer<const S: u8, T> {
     buffer: Vec<BufferWrap<T>>,
     size: u8,
@@ -6,8 +8,15 @@ pub struct CycleBuffer<const S: u8, T> {
 }
 
 impl<const S: u8, T> CycleBuffer<S, T> {
+    pub fn get_mut(&mut self, buf_id: u8) -> Option<&mut T> {
+        match unsafe { self.buffer.get_unchecked_mut(buf_id as usize) } {
+            BufferWrap::Data(d, BufferState::Waiting) => Some(d.deref_mut()),
+            _ => None,
+        }
+    }
+
     pub fn get(&self, buf_id: u8) -> Option<&T> {
-        match self.buffer.get(buf_id as usize).unwrap() {
+        match unsafe { self.buffer.get_unchecked(buf_id as usize) } {
             BufferWrap::Data(d, BufferState::Waiting) => Some(d.as_ref()),
             _ => None,
         }
@@ -29,22 +38,42 @@ impl<const S: u8, T> CycleBuffer<S, T> {
             Err(CbError::BufferFilled)?
         }
 
-        self.buffer.get_mut(self.top as usize).unwrap().update(data);
+        unsafe { self.buffer.get_unchecked_mut(self.top as usize) }.update(data);
         self.top = self.top.wrapping_add(1);
         self.size += 1;
 
         Ok(())
     }
 
+    
+
     pub fn buffer_down(&mut self, buf_id: u8) {
-        self.buffer.get_mut(buf_id as usize).unwrap().set_down();
+        unsafe { self.buffer.get_unchecked_mut(buf_id as usize) }.set_down();
+    }
+
+    pub fn slide_buff_with_done_data(&mut self)->Vec<T>{
+        let mut idx = self.button;
+        let mut vec = Vec::new();
+        while idx != self.top {
+            let buf = unsafe { self.buffer.get_unchecked_mut(idx as usize) };
+            if buf.is_down() {
+                vec.extend(buf.take());
+                self.size -= 1;
+            } else {
+                break;
+            }
+    
+            idx = idx.wrapping_add(1);
+            self.button = idx;
+        }
+        vec
     }
 
     pub fn slide_buff(&mut self) {
         let mut idx = self.button;
 
         while idx != self.top {
-            let buf = self.buffer.get_mut(idx as usize).unwrap();
+            let buf = unsafe { self.buffer.get_unchecked_mut(idx as usize) };
             if buf.is_down() {
                 buf.remove();
                 self.size -= 1;
@@ -99,9 +128,16 @@ impl<T> BufferWrap<T> {
         *self = BufferWrap::Nil;
     }
 
+    pub fn take(&mut self) -> Option<T> {
+        match std::mem::replace(self, Self::Nil) {
+            BufferWrap::Data(data, BufferState::Done) => Some(*data),
+            _ => None,
+        }
+    }
+
     pub fn set_down(&mut self) {
         match self {
-            BufferWrap::Nil => todo!(),
+            BufferWrap::Nil => (),
             BufferWrap::Data(_, d) => *d = BufferState::Done,
         }
     }
